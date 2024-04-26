@@ -9,15 +9,17 @@ import * as fs from "node:fs/promises";
 import 'dotenv/config'
 import path from "path";
 
+// This function diff local and remote models, and then pushes updates from local to remote, it does not handle screenshots
+
 async function main() {
 
+  // Get User Session Token
   const token = await getAuthToken()
 
-  console.log(token)
-
+  // Init Custom Types api Client
   const client = createClient({
-    repositoryName: process.env.REPO,
-    token: process.env.CT_API_TOKEN,
+    repositoryName: process.env.REPO || "",
+    token: process.env.CT_API_TOKEN || "",
     fetchOptions: {
       headers: {
         "User-Agent": "sm-api",
@@ -26,21 +28,29 @@ async function main() {
     }
   });
 
-  const models = await extractModels()
-  console.log(models)
+  // Read local slices
+  const { customTypes, slices } = await extractModels();
 
+  // Fetch remote slices
+  const [existingCustomTypes, existingSharedSlices] = await Promise.all([
+    client.getAllCustomTypes(),
+    client.getAllSharedSlices(),
+  ]);
+
+  // Create Diff and transaction
   const bulkTransaction = createBulkTransaction();
   bulkTransaction.fromDiff(
     {
-      customTypes: await client.getAllCustomTypes(),
-      slices: await client.getAllSharedSlices(),
+      customTypes: existingCustomTypes,
+      slices: existingSharedSlices,
     },
     {
-      customTypes: models.customTypes,
-      slices: models.customTypes,
+      customTypes: customTypes,
+      slices: slices,
     },
   );
 
+  // Push changes in bulk
   await client.bulk(bulkTransaction);
 }
 
@@ -110,7 +120,7 @@ const readModels = async <TType extends CustomType | SharedSlice>(args: {
     withFileTypes: true,
   });
 
-  const results = [];
+  const results: TType[] = [];
 
   for (const entry of entries) {
     if (entry.name !== args.fileName || entry.isDirectory()) {
@@ -132,19 +142,17 @@ class UnsupportedAdapterError extends Error {
   name = "UnsupportedAdapterError";
   adapterName: string;
 
-  constructor(adapterName: string, options?: ErrorOptions) {
-    super("Slice Machine adapter is not supported.", options);
+  constructor(adapterName: string) { //, options?: ErrorOptions
+    super("Slice Machine adapter is not supported."); //, options
 
     this.adapterName = adapterName;
   }
 }
 
-// Get an auth token
+// Get an auth token, could use SliceMachineAuthManager instead
 const getAuthToken = async () => {
-  console.log()
   const email = process.env.EMAIL
   const password = process.env.PASSWORD
-  console.log(email)
   const authResponse = await fetch('https://auth.prismic.io/login', {
     headers: {
       'Content-Type': 'application/json',
@@ -156,7 +164,7 @@ const getAuthToken = async () => {
     }),
   });
 
-  const token = await authResponse.text(); //process.env.MIGRATION_API_TOKEN
+  const token = await authResponse.text();
 
   return token
 }
